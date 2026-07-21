@@ -220,7 +220,33 @@ async def get_homeassistant_components(hass, config_entry) -> dict[
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
+        )
+    for key in temperature_data:
+        if not key.startswith("power_psu_"):
+            continue
 
+        parts = key.split("_")
+
+        if len(parts) != 4:
+            continue
+
+        psu_id = parts[2]
+        direction = parts[3]
+
+        if direction == "input":
+            sensor_name = f"PSU {psu_id} Input Power"
+        elif direction == "output":
+            sensor_name = f"PSU {psu_id} Output Power"
+        else:
+            continue
+
+        services["sensor"][key] = CiscoImcSensorEntityDescription(
+            key=key,
+            name=sensor_name,
+            icon="mdi:flash",
+            device_class=SensorDeviceClass.POWER,
+            native_unit_of_measurement="W",
+            state_class=SensorStateClass.MEASUREMENT,
         )
     services["sensor"][STATIC_SENSOR] = STATIC_SENSOR_TYPE
     services["switch"][SWITCH] = SWITCH_TYPE
@@ -444,6 +470,48 @@ class CiscoImcDataService(DataUpdateCoordinator):
         except Exception as ex:
             _LOGGER.warning(
                 "%s Unable to read DIMM temperatures: %s",
+                self.imc,
+                ex,
+            )
+        # Power supply input and output power sensors
+        try:
+            power_supplies = self.client.query_classid("EquipmentPsu")
+
+            for power_supply in power_supplies or []:
+                psu_id = str(
+                    getattr(power_supply, "id", "")
+                ).strip()
+
+                presence = str(
+                    getattr(power_supply, "presence", "")
+                ).strip().lower()
+
+                input_power = getattr(
+                    power_supply, "input", None
+                )
+
+                output_power = getattr(
+                    power_supply, "output", None
+                )
+
+                if not psu_id or presence != "equipped":
+                    continue
+
+                if input_power not in (None, "", "NA"):
+                    key = f"power_psu_{psu_id}_input"
+                    self.hass.custom_attributes[self.imc][key] = float(
+                        input_power
+                    )
+
+                if output_power not in (None, "", "NA"):
+                    key = f"power_psu_{psu_id}_output"
+                    self.hass.custom_attributes[self.imc][key] = float(
+                        output_power
+                    )
+
+        except Exception as ex:
+            _LOGGER.warning(
+                "%s Unable to read power supply data: %s",
                 self.imc,
                 ex,
             )
