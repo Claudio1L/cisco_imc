@@ -497,7 +497,38 @@ class CiscoImcDataService(DataUpdateCoordinator):
             )
         # Power supply input and output power sensors
         try:
-            power_supplies = self.client.query_classid("EquipmentPsu")
+            try:
+                power_supplies = self.client.query_classid("EquipmentPsu")
+            except Exception as ex:
+                error_message = str(ex).lower()
+
+                session_expired = (
+                    "authorization required" in error_message
+                    or "required cookie attribute missing" in error_message
+                )
+
+                if not session_expired:
+                    raise
+
+                _LOGGER.info(
+                    "%s Cisco IMC XML session expired, reconnecting",
+                    self.imc,
+                )
+
+                try:
+                    self.client.logout()
+                except Exception:
+                    pass
+
+                login_result = self.client.login()
+
+                if not login_result:
+                    raise UpdateFailed(
+                        "Unable to reconnect to the Cisco IMC"
+                    ) from ex
+
+                self.hass.custom_attributes[self.imc]["reachable"] = True
+                power_supplies = self.client.query_classid("EquipmentPsu")
 
             for power_supply in power_supplies or []:
                 psu_id = str(
