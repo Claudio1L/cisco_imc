@@ -49,7 +49,17 @@ MIN_SCAN_INTERVAL = 60
 SIGNAL_STATE_UPDATED = f"{DOMAIN}.updated"
 
 # Platforms
-PLATFORMS = ["binary_sensor", "sensor", "switch"]
+PLATFORMS = ["binary_sensor", "sensor", "switch", "button"]
+
+BUTTON_START = "start"
+BUTTON_STOP = "stop"
+BUTTON_SHUTDOWN = "shutdown"
+
+POWER_ACTIONS = {
+    BUTTON_START: "up",
+    BUTTON_STOP: "down",
+    BUTTON_SHUTDOWN: "soft-shut-down",
+}
 
 # Configuration and options
 CONF_NAME = "name"
