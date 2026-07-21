@@ -83,7 +83,11 @@ class CiscoImcPowerButton(CoordinatorEntity, ButtonEntity):
         self._attr_unique_id = (
             f"{DOMAIN}_{self.imc.lower().replace('.', '_')}_{description.key}"
         )
-
+        self._attr_device_info = {
+           "identifiers": {(DOMAIN, self.imc)},
+           "name": f"{NAME} {self.imc}",
+           "manufacturer": "Cisco",
+        }
     async def async_press(self) -> None:
         """Execute the selected power action."""
 
