@@ -16,7 +16,7 @@ from .models import (
 # Base component constants
 NAME = "Cisco IMC"
 DOMAIN = "cisco_imc"
-VERSION = "v2.3.11"
+VERSION = "v2.3.12"
 
 ISSUE_URL = "https://github.com/Claudio1L/cisco_imc/issues"
 
