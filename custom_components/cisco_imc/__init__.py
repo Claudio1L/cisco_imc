@@ -13,7 +13,11 @@ from collections import defaultdict
 
 from imcsdk_ecoen66.imchandle import ImcHandle
 from imcsdk_ecoen66.imcexception import ImcLoginError, ImcException, ImcConnectionError
+import base64
+import json
+import ssl
 
+from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -246,6 +250,24 @@ async def get_homeassistant_components(hass, config_entry) -> dict[
             icon="mdi:flash",
             device_class=SensorDeviceClass.POWER,
             native_unit_of_measurement="W",
+            state_class=SensorStateClass.MEASUREMENT,
+        )
+    for key in temperature_data:
+        if not key.startswith("fan_") or not key.endswith("_speed"):
+            continue
+
+        parts = key.split("_")
+
+        if len(parts) != 3:
+            continue
+
+        fan_id = parts[1]
+
+        services["sensor"][key] = CiscoImcSensorEntityDescription(
+            key=key,
+            name=f"Fan {fan_id} Speed",
+            icon="mdi:fan",
+            native_unit_of_measurement="rpm",
             state_class=SensorStateClass.MEASUREMENT,
         )
     services["sensor"][STATIC_SENSOR] = STATIC_SENSOR_TYPE
@@ -512,6 +534,55 @@ class CiscoImcDataService(DataUpdateCoordinator):
         except Exception as ex:
             _LOGGER.warning(
                 "%s Unable to read power supply data: %s",
+                self.imc,
+                ex,
+            )
+        # Fan speed sensors via Redfish
+        try:
+            redfish_url = (
+                f"https://{self.imc}/redfish/v1/Chassis/1/Thermal"
+            )
+
+            credentials = base64.b64encode(
+                f"{self.username}:{self.password}".encode("utf-8")
+            ).decode("ascii")
+
+            request = Request(
+                redfish_url,
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Accept": "application/json",
+                },
+            )
+
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            with urlopen(
+                request,
+                context=ssl_context,
+                timeout=30,
+            ) as response:
+                thermal_data = json.load(response)
+
+            for fan in thermal_data.get("Fans", []):
+                fan_id = str(fan.get("MemberId", "")).strip()
+                reading = fan.get("Reading")
+                units = str(fan.get("ReadingUnits", "")).upper()
+
+                if not fan_id:
+                    continue
+
+                if reading is None or units != "RPM":
+                    continue
+
+                key = f"fan_{fan_id}_speed"
+                self.hass.custom_attributes[self.imc][key] = int(reading)
+
+        except Exception as ex:
+            _LOGGER.warning(
+                "%s Unable to read fan speeds via Redfish: %s",
                 self.imc,
                 ex,
             )
