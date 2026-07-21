@@ -17,6 +17,10 @@ from imcsdk_ecoen66.imcexception import ImcLoginError, ImcException, ImcConnecti
 from urllib.error import URLError
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.config_entries import ConfigEntry, SOURCE_REAUTH, SOURCE_IMPORT
 from homeassistant.core import HomeAssistant, callback
@@ -28,6 +32,7 @@ from .switch import ImcPollingSwitch
 from .binary_sensor import CiscoImcBinarySensor
 from .sensor import CiscoImcRackUnitSensor
 from .imc_device import CiscoImcDevice
+from .models import CiscoImcSensorEntityDescription
 
 from homeassistant.const import (
     CONF_SCAN_INTERVAL,
@@ -35,6 +40,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     EVENT_HOMEASSISTANT_CLOSE,
+    UnitOfTemperature,
 )
 from .const import (
     DOMAIN,
@@ -181,7 +187,41 @@ async def get_homeassistant_components(hass, config_entry) -> dict[
         for sensor_type in SENSOR_TYPES:
             if sensor_type.key == key:
                 services["sensor"][key] = sensor_type
-    
+    temperature_names = {
+        "temperature_ambient": "Ambient Temperature",
+        "temperature_front": "Front Temperature",
+        "temperature_rear": "Rear Temperature",
+        "temperature_ioh1": "IOH 1 Temperature",
+        "temperature_ioh2": "IOH 2 Temperature",
+    }
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
+    temperature_data = hass.custom_attributes.get(coordinator.imc, {})
+    for key in temperature_data:
+        if not key.startswith("temperature_"):
+            continue
+        if key in temperature_names:
+            sensor_name = temperature_names[key]
+        elif key.startswith("temperature_cpu_"):
+            cpu_id = key.removeprefix("temperature_cpu_")
+            sensor_name = f"CPU {cpu_id} Temperature"
+        elif key.startswith("temperature_dimm_"):
+            dimm_name = key.removeprefix("temperature_").upper()
+            sensor_name = f"{dimm_name} Temperature"
+        else:
+            sensor_name = (
+                key.removeprefix("temperature_")
+                .replace("_", " ")
+                .title()
+            )
+        services["sensor"][key] = CiscoImcSensorEntityDescription(
+            key=key,
+            name=sensor_name,
+            icon="mdi:thermometer",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            state_class=SensorStateClass.MEASUREMENT,
+
+        )
     services["sensor"][STATIC_SENSOR] = STATIC_SENSOR_TYPE
     services["switch"][SWITCH] = SWITCH_TYPE
     services["binary_sensor"][BINARY_SENSOR] = BINARY_SENSOR_TYPE
@@ -321,6 +361,92 @@ class CiscoImcDataService(DataUpdateCoordinator):
         for key, value in rack_unit.__dict__.items():
             if key in RACK_UNIT_SENSORS:
                 self.hass.custom_attributes[self.imc][key] = value
+
+        # Motherboard temperature sensors
+        try:
+            motherboard_temps = self.client.query_dn(
+                "sys/rack-unit-1/board/temp-stats"
+            )
+
+            if motherboard_temps is not None:
+                temperature_attributes = {
+                    "temperature_ambient": getattr(
+                        motherboard_temps, "ambient_temp", None
+                    ),
+                    "temperature_front": getattr(
+                        motherboard_temps, "front_temp", None
+                    ),
+                    "temperature_rear": getattr(
+                        motherboard_temps, "rear_temp", None
+                    ),
+                    "temperature_ioh1": getattr(
+                        motherboard_temps, "ioh1_temp", None
+                    ),
+                    "temperature_ioh2": getattr(
+                        motherboard_temps, "ioh2_temp", None
+                    ),
+                }
+
+                for key, value in temperature_attributes.items():
+                    if value not in (None, ""):
+                        self.hass.custom_attributes[self.imc][key] = float(value)
+
+        except Exception as ex:
+            _LOGGER.warning(
+                "%s Unable to read motherboard temperatures: %s",
+                self.imc,
+                ex,
+            )
+
+        # CPU temperature sensors
+        try:
+            processor_stats = self.client.query_classid("ProcessorEnvStats")
+
+            for processor in processor_stats or []:
+                processor_id = str(getattr(processor, "id", "")).strip()
+                temperature = getattr(processor, "temperature", None)
+
+                if processor_id and temperature not in (None, ""):
+                    key = f"temperature_cpu_{processor_id}"
+                    self.hass.custom_attributes[self.imc][key] = float(
+                        temperature
+                    )
+
+        except Exception as ex:
+            _LOGGER.warning(
+                "%s Unable to read CPU temperatures: %s",
+                self.imc,
+                ex,
+            )
+
+        # DIMM temperature sensors
+        try:
+            memory_stats = self.client.query_classid("MemoryUnitEnvStats")
+
+            for memory in memory_stats or []:
+                description = str(
+                    getattr(memory, "description", "")
+                ).strip()
+                temperature = getattr(memory, "temperature", None)
+
+                if description and temperature not in (None, ""):
+                    normalized_name = (
+                        description.lower()
+                        .replace(" ", "_")
+                        .replace("-", "_")
+                    )
+
+                    key = f"temperature_{normalized_name}"
+                    self.hass.custom_attributes[self.imc][key] = float(
+                        temperature
+                    )
+
+        except Exception as ex:
+            _LOGGER.warning(
+                "%s Unable to read DIMM temperatures: %s",
+                self.imc,
+                ex,
+            )
         _LOGGER.debug(f"Updated Cisco IMC Rack Unit {self.imc}: {self.hass.custom_attributes[self.imc]}")
 
     def set_polling_state(self, new_state):

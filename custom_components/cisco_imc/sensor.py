@@ -78,15 +78,10 @@ class CiscoImcSensorEntity(CiscoImcDevice, SensorEntity):
         
 class CiscoImcRackUnitSensor(CiscoImcSensorEntity):
     """Representation of a Cisco IMC Rack Unit sensor."""
-    
+
     @property
-    def native_value(self) -> str | None:
+    def native_value(self):
         """Return the state of the sensor."""
-#        if self.coordinator.sensor_state(self.entity_description.key) is None:
-#            return None
-        return self.hass.custom_attributes[self.imc][self.entity_description.key]
-        
-    @property
-    def device_state_attributes(self):
-        """Return the state attributes of the sensor."""
-        return self.hass.custom_attributes[self.imc][self.entity_description.key]
+        return self.hass.custom_attributes.get(
+            self.imc, {}
+        ).get(self.entity_description.key)
