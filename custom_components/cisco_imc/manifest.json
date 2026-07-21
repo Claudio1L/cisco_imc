@@ -1,14 +1,14 @@
 {
   "domain": "cisco_imc",
   "name": "Cisco IMC",
-  "documentation": "https://github.com/ecoen66/cisco_imc",
-  "issue_tracker": "https://github.com/ecoen66/cisco_imc/issues",
+  "documentation": "https://github.com/Claudio1L/cisco_imc",
+  "issue_tracker": "https://github.com/Claudio1L/cisco_imc/issues",
   "dependencies": [
     "http"
   ],
   "config_flow": true,
   "codeowners": [
-    "@ecoen66"
+    "@Claudio1L"
   ],
   "requirements": [
     "imcsdk_ecoen66==0.9.33",
